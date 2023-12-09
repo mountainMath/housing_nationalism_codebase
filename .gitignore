@@ -1,0 +1,7 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+housing_nationalism_cache/*
+housing_nationalism_files/*

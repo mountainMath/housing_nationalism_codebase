@@ -1,0 +1,827 @@
+---
+title: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
+author:
+  - name: Nathan Lauster
+    affiliation: UBC Department of Sociology
+  - name: Jens von Bergmann
+    affiliation: MountainMath Software and Analytics
+date: "Nov 12, 2023"
+abstract: '**The Version of Record of this manuscript has been published and is available in Journal of Ethnic and Migration Studies 2023-12-20 [DOI:10.1080/1369183X.2023.2293635](http://dx.doi.org/10.1080/1369183X.2023.2293635)**\newline<br>
+
+We consider how housing acts as a potential realm where perception of crisis can activate reactionary nationalism, investigating how it differs from and interacts with other realms (e.g. jobs and wages, crime, and social welfare). We argue that housing produces distinct triggers for reactionary responses, and potentially results in different media framing, politics, and policy trajectories. We detail the rise of Housing Nationalism in Canada, following its spread from British Columbia, where we find that flexible framing of foreign threat often borrowed from other realms. By contrast, pinning Housing Nationalism to policy generally required more tractable definitions of foreignness, tied to surveillance and the application of penalties. We examine the roll out of policy responses associated with Housing Nationalism and lay out potential harms in terms of challenges to liberal ideals, including Canadian multinationalism, immigrant incorporation, and transnational ties. Finally we provide a baseline of Canadian transnational property ownership patterns, demonstrating that within the provinces where Housing Nationalism became most dominant, Canadian residents generally own far more properties abroad than the number of properties owned in Canada by residents elsewhere. Overall, the Canadian case demonstrates the utility of considering housing as a distinct realm motivating the rise of reactionary nationalism.'
+format:
+  pdf:
+    papersize: letter
+    fontsize: 12pt
+    fig-format: png
+    toc: true
+    lof: true
+    lot: true
+    keep-tex: false
+    keep-md: false
+    lang: "en-CA"
+    documentclass: article   
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+    link-citations: true
+    number-sections: true
+    extra_dependencies: ["float"]
+    fig-pos: "H"
+    title-meta: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
+    pagetitle: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
+    author-meta: "Nathan Lauster, Jens von Bergmann"
+    output-file: "housing_nationalism"
+    output-ext: "pdf"
+    #toc-depth: 2
+    geometry: left=3cm,right=2cm,top=2cm,bottom=2cm
+  html:
+    output-file: "index"
+    embed-resources: true
+documentclass: article
+fontsize: 12pt
+biblio-style: authordate1
+bibliography: housingnationalism.bib
+#link-citations: yes
+endnote: no
+editor: source
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cache = TRUE,
+	fig.pos = 'H'
+)
+library(tidyverse)
+library(cansim)
+library(canpumf)
+library(cancensus)
+library(mountainmathHelpers)
+```
+
+```{r}
+
+get_get_metro_hate_crime_data_for_path <- function(path){
+  path <- file.path(here::here("data"),path)
+    h<-readxl::read_xlsx(path,skip=1,col_names = FALSE,n_max=2) %>%
+    t() %>%
+    as_tibble() %>%
+    fill(V1,.direction="down") %>%
+    t() %>%
+    as_tibble() %>%
+    summarise_all(function(d)paste0(na.omit(d),collapse = " - ")) %>%
+    as.character()
+
+  h[1]="Filler"
+  
+  d<-readxl::read_xlsx(path,skip=3,col_names = h)
+  
+  na_rows <- which(is.na(d$`Hate Crime Motivation`))
+  
+  data <- d %>% slice(seq(1,na_rows[1]-1)) %>%
+    select(-Filler) %>%
+    pivot_longer(-`Hate Crime Motivation`,names_pattern = "(.+) - (.+)",names_to = c("CMA","Year"),values_to = "Count")
+  
+  title <- readxl::read_xlsx(path,n_max=1,col_names = FALSE) %>%
+    select_if(function(d) length(na.omit(d))>0) %>%
+    setNames("Title")
+  
+  notes <- readxl::read_xlsx(path,skip=na_rows[1]+2,col_names = FALSE) %>%
+    select_if(function(d) length(na.omit(d))>0) %>%
+    setNames("Notes")
+  
+  attr(data,"Notes") <- notes
+  attr(data,"Title") <- title
+  data
+}
+
+get_metro_hate_crime_data <- function(){
+  paths <- c("12. Hate Crime Motivation, by selected CMA, 2017 and 2018.xlsx",
+             "12. Hate Crime Motivation, by selected CMA, 2019 and 2020.xlsx")
+  
+  d1 <- get_get_metro_hate_crime_data_for_path(paths[1])
+  d2 <- get_get_metro_hate_crime_data_for_path(paths[2])
+  d<-bind_rows(d1,d2)
+  attr(data,"Notes") <- list(attr(d1,"Notes"),attr(d2,"Notes"))
+  attr(data,"Title") <-  list(attr(d1,"Title"),attr(d2,"Title"))
+d
+}
+
+get_hate_crime_table <- function(url){
+  d<-(rvest::read_html(url) %>% rvest::html_table())[[1]]
+  n<-names(d) %>% unique
+  n<-n[2:length(n)]
+  years=as.character(d[1,2:ncol(d)]) %>% unique
+  data<-d %>% set_names(c("Province or territory"),
+                  paste0(n[1]," - ",years),
+                  paste0(n[2]," - ",years),
+                  paste0(n[3]," - ",years),
+                  paste0(n[4]," - ",years),
+                  paste0(n[5]," - ",years)) %>%
+    slice(-1,-2) %>%
+    filter(!grepl("^0 true zero or|^Note",`Province or territory`))
+}
+
+get_angus_reid_data <- function(refresh=FALSE){
+  data_path <- here::here("data/angus_reid_survey.csv")
+  if (refresh||!file.exists(data_path)) {
+    url="https://angusreid.org/wp-content/uploads/2021/06/2021.06.25_UBC_AsianReleaseTables.pdf"
+    d<-tabulizer::extract_tables(url,pages = 28)[[1]] %>%
+      as_tibble()
+    h<-d %>% slice(c(2)) %>%
+      #summarize_all(function(d)paste0(d[d!=""],collapse = " ")) %>%
+      as.character()
+    h[1]="Region"
+    h[2]="Total"
+    data<- d %>% 
+      slice(-1,-2) %>%
+      setNames(h) %>%
+      pivot_longer(-one_of(c("Region","Total")),names_to = "Chinese Experience",values_to = "Value") %>%
+      mutate_at(c("Total","Value"),function(d)as.numeric(gsub("%","",d))/100)
+    write_csv(data,data_path)
+  } else {
+    data<-read_csv(data_path,col_types = cols(.default="c",Value="d",Total="d"))
+  }
+  data
+}
+
+get_prov_hate_crime_data <- function(){
+  
+  pop_estimates <- get_cansim_sqlite("17-10-0009") %>%
+    collect_and_normalize(disconnect = TRUE) %>%
+    filter(grepl("-07$",REF_DATE)) %>%
+    mutate(Year=substr(REF_DATE,1,4)) %>%
+    select(GeoUID,GEO,Year,Population=val_norm)
+  
+  
+  d1<-get_hate_crime_table("https://www150.statcan.gc.ca/n1/pub/85-002-x/2019001/article/00008/tbl/tbl04-eng.htm") %>%
+    mutate(across(-matches("Province or territory"),as.integer)) %>%
+    pivot_longer(matches(" - "),names_pattern = "(.+) - (.+)",names_to = c("Type","Year"),values_to = "Count") %>%
+    left_join(pop_estimates,by=c("Province or territory"="GEO","Year"="Year"))
+  
+  d2<-get_hate_crime_table("https://www150.statcan.gc.ca/n1/pub/85-002-x/2021001/article/00002/tbl/tbl03-eng.htm") %>%
+    mutate(across(-matches("Province or territory"),as.integer)) %>%
+    pivot_longer(matches(" - "),names_pattern = "(.+) - (.+)",names_to = c("Type","Year"),values_to = "Count") %>%
+    left_join(pop_estimates,by=c("Province or territory"="GEO","Year"="Year"))
+  
+  d1 %>% 
+    filter(!(Year %in% unique(d2$Year))) %>%
+    bind_rows(d2)
+}
+
+
+get_svt_data <- function(year=2020){
+  tmp <- tempfile(fileext = ".pdf")
+  url <- NULL
+  if (year==2018) url="https://news.gov.bc.ca/files/SVT_Consultation_All.pdf"
+  if (year==2019) url="https://news.gov.bc.ca/files/SVT_2019_Data.pdf"
+  if (year==2020) url="https://news.gov.bc.ca/files/SVT_Detailed_Data_2020.pdf"
+  download.file(url,tmp)
+  d<-tabulizer::extract_tables(tmp,method = "stream")
+  svt_data <- d %>% 
+    lapply(function(dd){
+    dd <- dd %>% as_tibble(.name_repair = "unique")
+    i1 <- which(grepl("Table 3",dd$...1))
+    i2 <- which(grepl("Table 4",dd$...1))
+    if (length(i1)==0) return(NULL)
+    name <- dd$...1[i1] %>% gsub("Table 3: Residential Properties in | - Declared Properties","",.)
+    #print(name)
+    h <- dd %>% slice(seq(i1+1,i1+2))
+    ddd<-dd %>% 
+      slice(seq(i1+3,i2-1))
+    if (year==2018) {
+      hh <- h %>% apply(1 , paste , collapse = " " )
+      hhh <- c("BC Resident","Other Canadian","Foreign Owner","Satellite Family","Mixed","Other","Total")
+      
+      ddd <- ddd %>% 
+        apply(1 , paste , collapse = " " ) %>% 
+        gsub("Exempt|Non exempt|Total","",.) %>% 
+        trimws() %>%
+        lapply(function(d)str_split(d," +") %>% unlist) %>%
+        as.data.frame() %>%
+        t() %>%
+        as_tibble(.name_repair = "unique") %>%
+        set_names(hhh) %>%
+        mutate(Status=c("Exempt","Non Exempt","Total"))
+    } else {
+      names(ddd)[1] <- "Status"
+      for (i in seq(2,length(names(ddd)))){
+        h1 <- h[1,i] %>% str_split(" ") %>% unlist()
+        h2 <- h[2,i] %>% str_split(" ") %>% unlist()
+        if (length(h1)>1) {
+          n1=paste0(na.omit(c(h1[1],h2[1])), collapse = " ") %>% trimws()
+          n2=paste0(na.omit(c(h1[2],h2[2])), collapse = " ") %>% trimws()
+          col <- as.name(paste0("...",i))
+          ddd<-ddd %>% mutate(!!n1:=!!col %>% strsplit(" ") %>% map(first) %>% unlist,
+                              !!n2:=!!col %>% strsplit(" ") %>% map(last) %>% unlist)
+        } else {
+          n1=paste0(na.omit(c(h1[1],h2[1])), collapse = " ") %>% trimws()
+          names(ddd)[i]=n1 
+        }
+      }
+    }
+    ddd <- ddd %>% 
+      select(-matches("\\.\\.\\.\\d{1}$|^$")) %>%
+      mutate(Municipality=name) %>%
+      select(Municipality,Status,`BC Resident`,`Other Canadian`,`Foreign Owner`,`Satellite Family`,Other,Mixed,Total) %>%
+      mutate_all(function(d)na_if(d,"nr")) %>%
+      mutate_at(vars(-matches("Municipality|Status")),function(d)gsub(",","",d) %>% as.integer)
+  }) %>%
+    bind_rows
+}
+
+
+
+bc_cities <- list_census_regions("CA16") %>% filter(PR_UID=="59",level=="CSD") %>%
+  mutate(dup=name %in% name[duplicated(name)]) %>%
+  mutate(Name=case_when(!dup ~ .data$name,
+                        municipal_status=="CY" ~ paste0("City of ",name),
+                        name=="Langley" ~ "Township of Langley",
+                        municipal_status=="DM" ~ paste0("District of ",name),
+                        TRUE ~ as.character(NA)))
+
+svt_data_2020 <-   simpleCache(get_svt_data(), "SVT_2020.rds",path=here::here("data")) %>% 
+  left_join(bc_cities %>% select(Municipality=Name,GeoUID=region), by="Municipality") 
+
+svt_data_2019 <-   simpleCache(get_svt_data(), "SVT_2019.rds",path=here::here("data")) %>% 
+  left_join(bc_cities %>% select(Municipality=Name,GeoUID=region), by="Municipality") 
+
+svt_data_2018 <-   simpleCache(get_svt_data(2018), "SVT_2018.rds",path=here::here("data")) %>% 
+  left_join(bc_cities %>% select(Municipality=Name,GeoUID=region), by="Municipality") 
+
+svt_data <- bind_rows(svt_data_2018 %>% mutate(Year="2018"),
+                      svt_data_2019 %>% mutate(Year="2019"),
+                      svt_data_2020 %>% mutate(Year="2020")) %>%
+  mutate(Municipality=factor(Municipality,levels=(.) %>% 
+                               filter(Status=="Total",Year==max(Year)) %>%
+                               arrange(Total) %>%
+                               pull(Municipality))) 
+
+
+prov_ids <- c("12", "35", "59", "13","46","11","62")
+geo_uids <- svt_data$GeoUID
+residency_types <- c("Resident owners only","Mix of resident and non-resident owners","Non-resident owners only")
+```
+
+
+
+# Introduction
+
+In this paper, we investigate how we might usefully consider reactionary nationalism in terms of the realms in which it becomes activated, taking up housing as an illustrative realm. We understand reactionary nationalism as the strategic framing of problems, taking of positions, and construction of solutions that blame and penalize the foreign while valorizing membership in the nation. We recognize strong overlaps between reactionary nationalism, nativism, and populism insofar as membership in the nation can be selectively (and opportunistically) framed in multiple ways to exclude various elements flexibly constructed as foreign [@brubaker2020populism]. In defining nationalism as reactionary, we can define it in relation to various realms where problems can be understood as appearing. Yet we do not presuppose that reactionary nationalism merely emerges in response to the appearance of problems. Rather, “propagators of nationalism” also actively construct, select, and magnify problems where nationalism might be positioned as a solution both for an “insecure class or stratum” and “where the wider populace is also experiencing insecurities” ([@brown1999there], p. 298). Similar to @brown1999there, @Franzese_2019 and @Rodrik_2018 position promoters of right-wing populism within supply and demand frameworks whereby the widespread perception of problems helps explain potential reception to particular solutions. Here the instigation of "moral panics" can serve to magnify problems, strategically seeding the demand for nationalist solutions and tying together the literature on nationalism with the study of social problems [@Cohen.2011; @husbands1994crises; @Klocke_2010]. Put differently, reactionary nationalism operates as part of a cultural toolkit for solving problems, where entrepreneurs practiced in the tool can advance their own interests by seeking out and magnifying problems to solve [@swidler1986culture]. In short, reactionary nationalism can be thought of as a hammer in search of nails. We turn our attention to where those nails might be found and how their locations matter. 
+
+Reactionary nationalism is widely understood to draw upon threat perceptions concerning jobs and wages, crime, welfare spending, foreign policy, and pandemics [@Creese_1988; @Franzese_2019; @Harell_2012; @jenne2021populism; @mylonas2022pandemic; @Rodrik_2018; @rumbaut2018immigration]. We can think of these as distinct realms, identified with different threatened classes, mechanisms for magnification, and policy responses. Distinguishing realms illuminates where new problems open up avenues for reactionary nationalism to take hold and how framing in one realm can build upon framing in another. Specifying realms can help clarify the various courses taken by reactionary nationalism and enable benchmarking of associated threats and harms. By way of illustrating the potential use of a realm approach, here we ask if housing can operate as a distinct realm of threat capable of producing nationalist reaction? If so, what makes it distinct? How do nationalist media frames locate housing threats within specific class relations? How do housing threats become magnified? If we can usefully speak of a distinct Housing Nationalism, how does it enter into politics and policy trajectories? Are there distinct harms arising from reactionary Housing Nationalism? Can we usefully benchmark transnational property ownership patterns to inform our understanding of threats and harms associated with Housing Nationalism? 
+
+Addressing the question of harms, nationalism is often presented as Janus-faced, where illiberal and bad versions exist alongside potentially liberal or good nationalisms, the latter emphasizing cross-class solidarity and collective efforts toward the common good [@johnston2010national; @mylonas2022pandemic]. @jenne2022varieties, for instance, positions an ideal type of liberal nationalism as embodied by collectivist (e.g. “zero covid”) responses to the pandemic, against the rise of a bad and exclusionary ethnonationalism. In positioning nationalism as reactionary, we largely adopt @brown1999there's situational distinction, where illiberal nationalism arises in conjunction with the insecurities and threats facing established classes. But he also suggests that a potentially liberating nationalism might be articulated by the self-confident elites of newly emancipated social strata. @sharma2020home, placing such movements within a post-colonial framework, offers no such comfort, arguing that all nationalisms ultimately turn illiberal, providing no more than a false path to emancipation. A variety of authors turn from the abstractions of this debate toward an exploration of how nationalism operates upon the development of social policy, including within putatively multinational states [@ko2022nationalism; @Beland-Lecours-2005]. Here some argue that the more restricted definitions of national belonging associated with reactionary nationalism can boost support for social welfare policies or otherwise promote the cross-class solidarity desirable within visions of liberal nationalism [@bay2016welfare; @johnston2010national; @dufresne2014true]. We frame our discussion of potential harms associated with Housing Nationalism within this debate.
+
+# Studying recent housing nationalism in Canada
+
+To answer our questions concerning Housing Nationalism, we focus on the "hard case" of Canada. Canada remains renowned within the broader literature for its liberal nationalism - or multinationalism - as evidenced by its widespread support for immigration, promotion of multiculturalism, and global outlook promoting transnational ties [@Aytac_2022; @Kymlicka_2021; @May_2022; @Wolfe_M_2005]. Close observers have noted this support has varied over time and across party affiliations, with positive views of immigration and trade, for instance, growing as concerns about unemployment and welfare spending recede [@Banting_2020; @Harell_2012]. Here we document how housing has arisen as a distinct realm of concern within Canada. We look to see if reactionary Housing Nationalism has emerged in response. If so, how did its emergence within the realm of housing compare to what we understand about its emergence within other realms? Correspondingly, we ask whether Housing Nationalism generates distinct paths for eroding Canadian support for immigration, multiculturalism, and the maintenance of robust transnational ties. 
+
+Methodologically, we follow the emergence of housing as a distinct realm of concern as it spread from media framing in the Vancouver area (Canada's priciest real estate) into provincial and federal framing, politics and policymaking. To track the potential spread of Housing Nationalism, we draw upon archival research of evolving news stories, records of legislative debates, and policy announcements. Our research has also been guided by our positions as Vancouver-based public-facing participant observers within broader housing debates, tracking and engaging with major media framing, political discussion, legal cases, and policy-making concerning housing from roughly 2010 onward. As we move toward discussing the potential impact and implications of Housing Nationalism, we add summary analysis of official statistics and survey results, with code detailing and enabling replication of our analysis linked by appendix. Crucially, we attempt to benchmark the extent of transnational property ownership as it relates to Canada. This provides a baseline for contextualizing perceptions of threat and consideration of harms potentially associated with Canadian Housing Nationalism. 
+
+# Housing as a Realm of Threat
+
+Housing offers a vast and complicated realm bridging peoples' everyday lives and expectations about the future to narratives of nationhood and state policies. In this it is similar to the realms of labour, crime, social welfare, and the pandemic. There is also a great deal of variation in housing systems around the world. The distribution of housing in Canada is primarily organized around the market, with a broad expectation that most people will move from rental to owner-occupation, ideally within a single-family house, across the life course [@Lauster.2016]. The state has a lengthy history of assisting with these transitions via direct subsidies, preferential tax treatment, and the backing of mortgage financing. 
+
+The housing situation within Canada, and specifically within Vancouver, has long been presented as in crisis by multiple metrics. The greatest Core Housing Need is experienced by lower-income renters and homeless counts have risen sharply over the past two decades. Yet the notion of a housing crisis within media framing has largely been focused on rising sales prices. Vancouver has long vied with Toronto for the priciest housing market in Canada. Sales prices fell little during the 2008-2009 financial crisis, and around 2014 began to climb again, especially within the detached single family house (SFH) sector, as may be seen in @fig-repeat-sales-hpi drawing upon MLS data to build a repeat sales Housing Price Index (HPI) for Metro Vancouver. 
+
+Affordability metrics linking detached housing prices to median incomes rose dramatically between 2014 and 2016, drawing a direct tie to the realm of labour. But the price of housing is not solely tied to incomes. Interest rates and wealth, often built up in equity or transferred to local markets, also contribute to demand. Various economic analysts, including within the CMHC, have emphasized the lack of responsiveness between the supply of housing in Vancouver and rising demand [@CMHC.2018; @MacPhail.et.al.2021; @Paixao.2021]. Supply of detached houses remains particularly constrained given the fraught politics of intensification and the protected status of the remaining land base that might support further outward sprawl. Despite relatively low unemployment rates, declining housing affordability left many Vancouverites feeling anxious over their perceived inability to achieve the middle-class signifiers of success and the good life obtained by their parents [@Lauster.2016]. Housing constituted a realm of potential threat distinct from labour, and also distinct from crime and social welfare.
+
+
+```{r fig-repeat-sales-hpi, fig.cap="Housing repeat sales HPI for Metro Vancouver, detached, townhouse and apartment.", fig.height=5, fig.width=7}
+
+start_year <- "2001"
+
+markers <- tibble(x=as.Date(c("2016-07-28","2017-10-01","2018-11-16","2020-03-15")),
+                  y=c(600,150,600,110),
+                  label=c("FBT","OSFI\nstress test","SVT","COVID"))
+markers_v <- tibble(x=as.Date(c("2016-07-25","2016-08-02",
+                                "2017-07-05","2018-01-01",
+                                "2018-10-16","2019-01-01")),
+                  type=c("Announcement","Enactment",
+                         "Announcement","Enactment",
+                         "Announcement","Enactment"))
+
+hpi_data <- read_csv(here::here("data/hpi_data.csv"))
+hpi_data %>%
+  left_join(filter(.,strftime(Date,"%Y")==start_year) %>% 
+              group_by(Type) %>%
+              summarise(m=mean(Value),.groups="drop"),
+            by="Type") %>%
+  filter(Date>=as.Date(paste0(start_year,"-01-01"))) %>%
+  mutate(Value=Value/m*100) %>%
+ggplot(aes(x=Date,y=Value,colour=Type)) +
+  geom_line() +
+  theme_bw() +
+  scale_colour_brewer(palette = "Dark2") +
+  scale_y_continuous(trans="log",breaks=seq(0,1000,100)) +
+  geom_vline(data=markers_v,aes(xintercept=x,linetype=type),size=0.25) +
+  geom_vline(data=markers %>% filter(label=="COVID"),aes(xintercept=x),size=0.25) +
+  geom_label(data=markers,aes(x=x,y=y,label=label),inherit.aes=FALSE,size=3) +
+  theme(legend.position = "bottom") +
+  scale_linetype_manual(values=c(Announcement="dotted",Enactment="dashed")) +
+  labs(title="Metro Vancouver HPI (repeat sales)",
+       x="Month of contract date",y=paste0("Repeat sales HPI (mean of ",start_year," = 100)"),
+       colour=NULL,linetype="Policy date",
+       caption="Data: REBGV & FVREB MLS")
+```
+
+As we illustrate price run-ups, we also denote the announcement and enactment dates of two policies related to the rise of Housing Nationalism in the Figure, including the Foreign-Buyer Tax (FBT) and the Speculation & Vacancy Tax (SVT). We discuss these in more depth below. We also highlight the dates associated with the more broadly consequential mortgage qualifier stress-tests put in place by the Office of Superintendent of Financial Institutions (OSFI), and the onset of the COVID pandemic.
+
+# A reactionary nationalist response?
+
+Was there a reactionary nationalist response to the realm of housing? We answer this question first by drawing upon evolving media framing of the reasons for high prices. Did they emphasize a foreign threat? Did they suggest solutions that penalized foreignness and valorized membership in the nation? 
+
+By 2014, local media outlets began framing Vancouver's housing woes in explicitly nationalist terms, portraying China as the source of the threat and regularly running headlines like, “Vancouver housing data reveal Chinese connection” [@Marlow.2014]. Media correspondingly extolled a BC Chamber of Commerce's proposal that the Province lower the Property Transfer Tax for “British Columbians who buy primary residences, and raise it for foreigners who buy second homes or investment properties” [@Cayo.2014]. International media followed, lending further legitimacy to local framing. Contributors to price rises in Vancouver were identified as “China, above all” in a New Yorker piece raising the prospect of charging foreign buyers a “premium for the privilege of owning there” [@Surowiecki.2014; @Yaffe.2014].
+
+Media focus on the particular threat posed by China reflected, in part, ubiquitous foreign policy concerns about China's rise as an international power. But the construction of a particular threat posed by China also built upon both previous narratives of threat posed by Hong Kong and contemporaneous narratives of threats to Hong Kong. Vancouver became a prominent destination for tens of thousands of immigrants from Hong Kong in the run-up to the latter's handover from an outpost of British Empire to a Special Administrative Region of China in 1998. Immigrants from Hong Kong frequently arrived with great wealth, often under special business investment classes [@Ley.2011]. Hong Kong immigrant wealth was perceived as threatening to many formerly white middle class and wealthy neighbourhoods of Vancouver, where "monster houses" catering to Hong Kong tastes challenged Anglophone aesthetics and resulted in local backlash [@Mitchell.2004]. Many white residents likely experienced the rise of immigrant Chinese buyers after 2014 as an extension of the threat earlier emerging from Hong Kong. By contrast, the Hong Kong diaspora in Vancouver viewed the arrival of buyers from China as a different kind of threat. China began a crack down on Hong Kong's remaining independence by 2014, according to Fong provoking a reactionary form of Hong Kong "nationalism" [@fong2017one]. Tensions have accordingly risen within Hong Kong between “Hong Kongers” and recent migrants from China, with anti-migrant attitudes increasingly common [@lee2018explaining; @Xiao.Xu.2019]. Overall, members of the Hong Kong diaspora within Vancouver likely experience distinct, but overlapping perceptions of threat from China relative to other Canadians, and many figures associated with the earlier Hong Kong diaspora readily blamed those from China for Vancouver's rising housing prices [@Bula.2016].
+
+Though the threat generally remained expressed as originating from China, the particular “foreignness” of the threat was imagined in a flexible manner within framings of Housing Nationalism, reflecting the inherent malleability of populist nationalism [@brubaker2020populism]. At some times, foreignness was applied to non-residents of Canada; at other times to non-citizens of Canada; at other times to money arriving from outside of Canada, or money otherwise untaxed by Canada. Rather than being clearly defined, the flexibility of “foreignness” was perpetuated through multiple studies from “socially accredited experts” [@Cohen.2011] and their framing within the media [@Sun.2015]. Stylized facts about foreign buyers became slippery, with definitions remaining underdeveloped and flexibly applied primarily to emphasize and magnify threat [@hirschman2016stylized].
+
+The "moral entrepreneurs" pushing Housing Nationalism as a frame varied from media figures to politicians, academics, and other variously accredited experts [@Klocke_2010]. In one prominent example, a local researcher built upon data of recent sales and titles of single-family detached houses in wealthy neighbourhoods of Vancouver west of Alma Street (the Point Grey, Dunbar, and UEL lands) assembled by then opposition politician David Eby (NDP MLA). The proportion of sales to people with “’Non-Anglicized Chinese’ names” was highlighted as suggesting “newer immigrant” purchasers [@Yan.2015]. In coverage, the purchasers were generally not identified as immigrants or on their way to becoming Canadian, but rather as Chinese [e.g. @Jackson.2015] and associated with “wealthy foreign investors” looking to “avoid paying taxes” [@Gold.2015]. Contemporary media commentary went back and forth on whether the study's methods might be considered racist [@CBC.2015; @Todd.2015]. Eby would later apologize for his role in the study and the cloud it cast upon all those with Chinese names [@Smith.2021]. Another purported study was heralded by the CBC with the inflammatory headline: “Foreign buyers crushing Vancouver home dreams as governments do little: study,” and the first line of the article particularly identified “foreign Chinese buyers” as the problem [@Bains.2016]. 
+
+# A distinct trajectory for Housing Nationalism?
+
+Media framing strongly suggests housing operates as a distinct realm of threat evoking reactionary nationalism. But does it emerge independently from other realms? Or does it borrow from them? The realm of foreign policy likely contributed to the identification of China as a particular threat. The realm of labour might be understood as contributing to the predominant framing of housing crisis in terms of prices relative to local wages, while downplaying local wealth and interest rates. But wage to price metrics are common, and also arguably a simple extension of the longstanding income to rent metric in Canada's measurement of Core Housing Need. What of the realms of crime and social welfare? Do they inform Housing Nationalism?
+
+Broad reporting on the impact of foreign buyers on real estate was frequently matched to investigative reporting emphasizing the corruption of wealthy Chinese immigrants and investment schemes. Headlines included “Chinese police run secret operations in B.C. to hunt allegedly corrupt officials and laundered money,” [@Cooper.2015]; “Foreign investors avoid taxes through Canadian real estate,” [@Tomlinson.2015]; and “BC casinos court China's high rollers, but it's realtors who gamble with money launderers” [@Young.2015]. In aggregate, reporting frequently linked Chinese corruption, vice, and money-laundering to Vancouver real estate in ways which both further obscured the line between immigrant and foreigner and echoed the “yellow peril” discourse of a previous era [@Anderson.1991; @Hanser.2013; @Lee.2007]. 
+
+Magnification over concerns and their connections to Chinese buyers within the media was both directly influenced by politicians and also reflected in many complaints and letters addressed to politicians [e.g. @CityVancouver.2018]. In this sense, the moral panic dynamics commonly applied to crime, as a realm, also contributed to the magnification of Housing Nationalism as a frame for understanding housing problems. Links to social welfare were also often made, sometimes converging with links to crime and broader populist themes. For instance, a local columnist suggested "astronaut" families, where a parent worked abroad, were both "elite" and potentially "corrupt," raising concern about how such families avoided local taxation on their primary earnings while benefiting from Canada's generous public welfare system, including "cheap and excellent schooling, free medical care and security" [@Todd.2017].
+
+Overall, while Housing Nationalism appears driven by crises distinct from those of other realms, there is ample evidence of borrowing across realms for framing material and techniques of threat magnification. How does Housing Nationalism translate into politics and policy?
+
+# Housing Nationalism in Politics and Policy
+
+The affordability of property ownership for the middle class became increasingly salient as an issue in the run-up to the provincial BC elections of 2017, as the centre-right governing BC Liberals sought to ward off attacks from the opposition left-leaning New Democratic Party (NDP). The cause of Housing Nationalism entered into policy development as the BC Liberals attempted to respond to attacks, and has remained on the policy agenda ever since, both in BC, and recently extending into national discussions. But policy development required clear definitions of “foreignness” in order to determine who would face penalties in property ownership and how those penalties would be levied. This set in motion a variety of policy or program operationalizations of “foreign” briefly summarized in Table <a href="#tab-foreignoperationalization">1</a>. Of note: human rights codes forbid tying definitions of “foreign” to specific nationalities, de-emphasizing "Chinese-ness" relative to broader operationalizations of "foreign."
+
+::: {#tab-foreignoperationalization}
+::: {.content-visible when-format="html"}
+```{r foreign-operationalization}
+library(kableExtra)
+table_text <- tibble(
+  `Policy or Program` = c("Foreign Buyer Tax (2016)", "Speculation & Vacancy Tax (2018)", "Cullen Commission on Money Laundering (2018)", "Canada Housing Statistics Program (2018)"),
+  Government = c("BC Liberal","BC NDP","BC NDP","Federal Statistic"),
+  `Operationalization of “Foreign”`=c("Non-citizen/PR$^* buyers",
+                                      "Non-citizen/PR$^* owners & non-Canadian taxed spousal incomes",
+                                      "Non-Canadian sources of questionable money",
+                                      "Non-residents of Canada ")
+)
+
+table_text |>
+  kbl(booktabs = TRUE, escape = TRUE, align = "lccc",
+      caption="Policies, Programs, and Operationalization of “Foreign”" ) |>
+  row_spec(0,bold=TRUE) |>
+  column_spec(1, width = "5cm") |>
+  column_spec(2, width = "2.5cm") |>
+  column_spec(3, width = "7cm") |>
+  column_spec (1:3,border_left = T, border_right = T) |>
+  add_footnote("Non-citizen/PR here excludes both, citizens and legal Permanent Residents of Canada, who were not penalized by taxes.",notation="symbol")
+```
+:::
+```{=latex}
+\begin{table}[!th]
+\renewcommand{\arraystretch}{1.3} % adds row cushion
+\caption{Policies, Programs, and Operationalization of “Foreign”}
+\label{tab:foreign-operationalization}
+\vspace{4mm}
+\centering
+\begin{tabular}{|p{5cm}|p{2.5cm}|p{7cm}|}
+  \hline      
+  \textbf{Policy or Program}  & \textbf{Government}   & \textbf{Operationalization of “Foreign”} \\
+  \hline      
+  \hline
+  Foreign Buyer Tax (2016)	&		BC Liberal	&	Non-citizen/PR$^*$ buyers \\
+  \hline
+  Speculation \& Vacancy Tax (2018)	&	BC NDP	&		Non-citizen/PR$^*$ owners \& non-Canadian taxed spousal incomes \\
+  \hline
+  Cullen Commission on Money Laundering (2018) &	BC NDP &	Non-Canadian sources of questionable money  \\
+  \hline  
+  Canada Housing Statistics Program (2018)	& Federal Statistics &	Non-residents of Canada \\
+  \hline
+\end{tabular}
+\\ \begin{flushleft}\footnotesize{$^*$ Non-citizen/PR here excludes both, citizens and legal Permanent Residents of Canada, who were not penalized by taxes.}\end{flushleft}
+\end{table}
+```
+:::
+
+## The Foreign Buyer Tax
+The BC Liberals developed a Foreign Buyer Tax (FBT) based upon the proposal first put forward by the BC Chamber of Commerce in 2014. Beginning in 2016, they applied a 15% additional tax on property transfers within Metro Vancouver to non-Canadian citizens or non-permanent residents of Canada.^[On top of the base property transfer tax of 1% on the first $200,000, 2% on the balance up to $2,000,000, and 3% on the remainder of the property value. There are several exemptions available for first-time buyers as well as on the purchase of newly built properties. In 2021 the BC NDP added another bracket taxing 5% on the value over $3,000,000.] During the debate over the new tax within the BC Legislative Assembly, the opposition NDP attacked the BC Liberal record on affordability, while raising potential problems with the tax, including its racist tones and interference with ongoing immigration processes. Nevertheless, the debate largely mirrored broader Housing Nationalism framing within the media, and several media stories were directly cited by both sides. Concerns about affordability were narrowly targeted toward middle class property ownership and the importance of privileging Canadians over foreigners. Though the policy, as developed, did not single out China, Members of the Legislative Assembly (MLAs) made more frequent references to China than to any other country save for Canada, even as legislators on both sides of the aisle also expressed concerns that anti-China framing should not impugn Chinese-Canadians [@Hansard.2016, July 26, 40(10): 1455-1500].
+
+Passage of the Foreign Buyer Tax provided government legitimization for the framing and demands of Housing Nationalism. It also became rapidly emulated, with the Ontario Liberal Party adopting a similar framework in 2017. Nevertheless, these policies failed to satisfy many media commentators, activists, or politicians from opposition parties. Questions of housing affordability took centre stage during the next election, and the BC Liberals ultimately lost to a hastily formed alliance between the NDP and the Green Party. The victorious NDP, though initially expressing strong concerns about the Foreign Buyer's Tax and its framing of “foreignness,” ultimately decided to not just keep it, but expand the FBT's geographic coverage and raise the tax to 20%.
+
+## Speculation and Vacancy Tax
+In addition to expanding the Foreign Buyers Tax, the BC NDP also introduced new policy influenced by Housing Nationalism. Where the BC Liberals drew upon the BC Chamber of Commerce as inspiration for their Foreign Buyer's Tax, the BC NDP drew upon a 2016 proposal by a collection of economists for a BC Housing Affordability Fund (BC HAF). The Housing Affordability Fund effectively proposed a new property tax that would be offset by income taxes paid in BC or rent received from tenants, the argument being that this would reduce speculation in real estate, particularly by those who didn't pay taxes within the province, and encourage the renting of empty apartments. The BC NDP, supported by the Greens, ultimately adopted a modified version of this tax, titled the Speculation and Vacancy Tax (SVT). 
+
+The modifications made by the BC NDP tended to double down on Housing Nationalism, creating separate tax rates for non-Canadian citizens (highest), relative to BC Residents (lowest) or other Canadians. The NDP also created a new taxable category for “Satellite Families,” specifically targeting transnational married couple incomes where the larger part of the income remained untaxed in Canada. This drew upon the "Astronaut Family" framing forwarded by media, but also followed from Housing Nationalism's flexible definition of foreign, extending to the foreignness of the money flowing into Vancouver real estate as the problem, rather than the foreignness of people. In expanding the definition of foreignness to encompass money while also continuing and expanding policies focused on the foreignness of people, the NDP created entirely new categories of "foreign" to blame and penalize. Tellingly, in press releases emphasizing how few BC residents paid the Speculation and Vacancy Tax, the NDP government consistently removed all members of Satellite Families from their definition of "BC residents", regardless of their citizenship or where they resided, a striking form of state exclusion [@Cheong2023]. Many BC residents within transnational marriages felt newly villainized by this process, including at least one white Canadian citizen, charged the tax after her husband took a job in the United States, who declared to a reporter, "We have been lumped in with criminals, money-launderers, labelled as foreigners" [@Rankin.2020].
+
+## Money Laundering Inquiries
+While tax policy development required specific definitions of "foreign," other government responses maintained many of the ambiguities associated with Housing Nationalism. In particular, various inquiries into "dirty money" were launched by the incoming NDP government, beginning in 2017. These kept vague associations between real estate, corruption, and foreignness in the news even as tax results began to look underwhelming. Two expert reports on money laundering were commissioned to determine whether further action should be taken. The first report, by a former senior RCMP officer, largely recapitulated existing media reporting, including its framing and focus on China [@German.2019]. The second report, authored by a panel of academics including experts on local real estate and international money laundering, offered strikingly different framing [@Maloney.2019]. The panel estimated that the largest international source of money laundering within Canada almost certainly came from the USA. Furthermore, applying their models on a provincial basis, neighbouring Alberta was thought to have a larger money laundering problem than BC. 
+
+The province drew upon the reports to establish the Cullen Commission on Money Laundering in 2019, tasked with examining the issue in further depth and issuing recommendations, but the broader public were provided few nuanced readings of divergent framings. Instead, the two reports were generally promoted as reinforcing Housing Nationalism narratives. In a prominent example of how the framing was received, a letter to the editor of the North Shore News, approvingly passed around on social media by BC NDP politicians, detailed a stock market investor's reaction. She'd been hoping to move from her condo to a single-family house in the wealthy suburb of West Vancouver, “the epicentre of the satellite family phenomenon” as she described it, and felt validated by the investigations. She had “felt like a failure,” like she “didn't deserve to live in a house in this city.” But the money-laundering investigation seemed to demonstrate that “the global moneyed elite” was actually to blame for keeping her from being able to afford a house, and they had arrived bringing a “tidal wave of dirty foreign capital to our real estate market” [@Brewster.2019]. The framing of Housing Nationalism offered a neat explanation and balm for the author's anxieties, speaking directly to its continuing appeal. 
+
+## Canada Housing Statistics Program
+At the federal level, both Statistics Canada and the Canada Mortgage and Housing Corporation (CMHC) closely followed the discourse and policy-making associated with Housing Nationalism. Among other goals they sought to develop independent estimates of the role of “foreign” owners within Canadian housing markets. In 2017, they initiated the Canada Housing Statistics Program (CHSP), originally through working partnerships with BC and ON, but increasingly expanded to other provinces. The program drew upon centralized property title and assessment data held at the provincial level, and linked them with administrative data held federally to create a central database on residential property ownership. Owner-level information was obtained from income tax data, business registries, the Census, immigration records, and Canada's Longitudinal Immigration Database.
+
+Unlike with other policies, the definition of “foreignness” within the CHSP program relies upon administrative records of residency within Canada. CHSP reports information about whether owners could be found within Canada, correspondingly dividing up owners into resident and non-resident categories. CHSP notes that the quality of linking varies in line with the prevalence of “common names” and “non-civic addresses,” resulting in some concerns about estimates, suggesting that “the derived non-resident ownership rate in particular is impacted by variation in linkage quality.” [@CHSP.2021] Nevertheless, CHSP estimates of non-resident owners have been used widely as estimates of “foreign ownership" and "foreign money" [e.g. @gordon2020solving]. We return to the CHSP data below.
+
+
+# Housing Nationalism as Solution?
+
+While a full evaluation of policies remains beyond the scope of this paper, the effect of FBT and SVT taxes on housing price trajectories appears to have been minimal, largely drowned out by other forces (see @fig-repeat-sales-hpi). A careful causal study of the effect of the Foreign Buyer Tax suggests it had negligible effects on the trajectory of condo prices, but led to temporary detached-house price drops of 5% in Vancouver and 7% to 9% in Toronto, reverting back to counter-factual (without FBT) levels within a couple of years [@Du2021]. Given the small proportions of transactions involving non-citizens or non-residents, some analysts have attributed even these limited impacts to market psychology, including the widespread belief that foreigners were heavily involved [@CMHC.2018; @Khan.2019]. These beliefs, in turn, had often been reinforced by a variety of previous descriptive studies highlighting correlations between various conceptionalizations of "foreignness" and home prices [e.g. @Ley.2011; @gordon2020solving].
+
+High profile law enforcement investigations into alleged foreign money laundering failed to result in convictions in court [@Little.2023]. More crucially, after three years of investigation, the Cullen Commission on Money Laundering produced its final report in 2022, concluding that money laundering was a problem, but decisively rejecting how it had been positioned within the framing of Housing Nationalism.
+
+>   "Unfortunately, when uncertainty pervades the public discussion about money laundering, it can contribute to a proliferation of ungrounded theories about the scale and nature of the problem. As a result, ideas have developed in the public discourse that promote generalizations about the involvement of ethnic or racial groups in money laundering activity in British Columbia. There is, for example, a theory that money laundering by Chinese criminals in the housing market in the Lower Mainland has contributed to a housing unaffordability crisis. I explored this theory in my Report and concluded that low supply, high demand, and low interest rates are the drivers of housing unaffordability in British Columbia – not money laundering... Great care must be taken to avoid exciting a response to a significant socio-economic problem (prohibitively expensive housing) that not only misses the mark, but also vilifies ethnic or racial groups as responsible for a problem not of their making." ([@Cullen_Final] p. 1624-1625)
+
+For their part, both the CHSP data and administrative reporting on tax results have consistently suggested relatively low non-resident or foreign ownership of properties, though estimates have varied by municipality and sub-market, and we return to estimations below (e.g. @CMHC_CHSP_2019). Despite results, widespread belief in the framing of Housing Nationalism has continued. 
+
+Though Housing Nationalism largely failed to provide solutions to housing unaffordability, it has remained a political winner. There was relatively wide polling support in BC for both increasing and expanding the Foreign Buyer Tax (80%) and embracing the Speculation and Vacancy Tax (62%) in 2018 [@Canseco.2018]. The good polling continued through subsequent years, though after new prices surges through pandemic lockdowns and travel restrictions, British Columbians largely gave up the idea that tax measures associated with Housing Nationalism were going to be effective policy [@Canseco.2021].
+
+Despite the declining sense that policies associated with Housing Nationalism offered viable solutions to rising housing prices in BC, politicians across the country took notice of the continuing popularity of local framing. Surging home prices during the pandemic meant housing affordability was suddenly a concern all across Canada. In the run-up to the 2021 election, every major federal party adopted policy planks drawing upon and extending from the policy agenda associated with Housing Nationalism in BC. With the return of a minority government, led once more by the Liberal Party, a national Underused Housing Tax was placed upon foreign-owned properties left empty, similar to BC's SVT, and a two year ban on foreign purchases of residential property was enacted, with a start date of January 2023, with foreignness defined akin to BC's FBT. Ultimately rising interest rates would appear far more important in slowing or reversing the pandemic climb in home prices, though they did little to improve affordability overall and likely reduced residential construction. For his part, BC's David Eby became premier of BC in November of 2022, building upon his visibility as both Attorney General and Minister Responsible for Housing. The NDP government, in turn, has shifted to emphasizing the need to add dramatically more housing supply, but Housing Nationalism remains a vital force in Canadian politics.
+
+
+# Potential Harms of Housing Nationalism
+
+Results may differ elsewhere, but recent Canadian history suggests that the framing of Housing Nationalism can prove popular and useful for politicians without producing effective policy solutions for addressing affordability concerns. Is there harm in this? Most obviously and directly, framing and policies that blame and penalize foreigners are likely to harm anyone perceived as foreign. It is possible to argue that these potential harms are outweighed by the potential benefits of renewed solidarity, as per a model of Liberal Nationalism [@johnston2010national]. Engaging in Housing Nationalism could enable support to be gathered for collective policy solutions, building cross-class coalitions for more inclusionary policies. The BC NDP's Speculation and Vacancy Tax, for instance, directly combined measures likely to affect more affluent BC residents (e.g. its vacancy provisions) with measures building upon Housing Nationalism (its "satellite family" provisions and higher rates for "foreign owners"). The revenue from the tax is earmarked for supporting affordable housing in the regions from which it is collected, and an "additional school tax" on residential properties worth more than three million dollars was released as part of the same plan [@Pawson_2018].
+
+An alternative formulation takes a broader position that reactionary nationalism undermines rather than justifying effort at greater inclusion and solidarity, opening up new lines of attack against a liberal, or multinational state [@sharma2020home]. Here Canada provides a preeminent example of the multinational state. Fully resolving this debate is beyond the scope of this paper. But confining reactionary nationalism to the realm of housing helps define concerns over the harms it may cause. Here we lay out potential harms to Canadian multinationalism, immigrant incorporation, and Canadian transnational ties.
+
+## Harms to Multinationalism
+
+Canada operates as a multinational state. Canada only reluctantly adopted a statehood fully distinct from the British Empire through the 20th Century, officially separating from control by the British Parliament in 1982. Despite separation from the UK, the King remains Canada's monarch, and within Canada there is little agreement concerning a common national membership. Rather there remains legal recognition for distinct First Nations, Inuit, Metis, and Quebecois nations, along with a broad and encompassing policy of Multiculturalism encouraging the retention and celebration of cultural difference [@Beland-Lecours-2005; @kymlicka2011multicultural]. 
+
+Where the Canadian state embraces the foreign as a means to contain its diverse nations and govern across its divides, Housing Nationalism emphasizes the threat of the foreign and attempts to build this threat into a policy response. Emphasis upon foreign threat potentially agitates the demands of separatists within Canada. Provincially, separatists are strongest within Quebec, where they've had a significant impact on policy, but they also remain active elsewhere [@Beland-Lecours-2005]. Most directly perhaps, high housing prices in British Columbia were quickly blamed in part upon the particular immigration policies of Quebec, suggesting the potential for Housing Nationalism to inflame inter-provincial tensions [@Lintz-2016; @Young.2014].
+
+It is possible, of course, that highlighting a foreign threat might lead to a more unified national identity across Canada rather than rising separatism. Unfortunately, the strongest historical basis for such a turn has been White Nationalism. Efforts at transforming Canada from colony into a distinct nation-state were inextricably tied to race and whiteness during the transformation of the British Empire through the late 19th and early 20th centuries [@sharma2020home]. Successive efforts were made to limit immigration and citizenship claims from residents arriving to Canada from portions of the British Empire that were not white. In BC, Chinese and other Asian immigrants were special targets of anti-Asiatic leagues and policies, often arising from labour concerns [@Creese_1988]. Strong property rights initially offered some protection for Asian property owners, but racist covenants spread to preserve the whiteness of many neighbourhoods [@Anderson.1991]. During WWII, and through the process of Japanese internment, the property rights of Japanese residents of Canada were largely stripped away, with a minimum of compensation offered in return [@stanger2017my]. After the War racialized notions of nationhood fell out of fashion, largely in conjunction with the rejection of Nazism. Canada, in turn, restored full citizenship to non-white residents, gradually liberalized its immigration policy, and adopted Multiculturalism as state policy.
+
+Housing Nationalism has seen a return to anti-foreign, anti-Asian, and specifically anti-Chinese sentiment. Racist social media comments became common, and were also translated into graffiti, some targeting realtors [@Sun.2015], others attached to development applications, as with the one in @fig-dunbar-graffiti in the Dunbar neighbourhood photographed by the first author (April 19th, 2019).
+
+```{r fig-dunbar-graffiti, fig.cap="Graffiti on a development application board in Dunbar in April 2019.", out.width = "80%", echo=FALSE}
+knitr::include_graphics("images/dunbar_graffiti.jpeg")
+```
+
+
+Scrawled comments surrounding the design for the low-rise apartment building included “Enough is Enough;” “Not for the people of British Columbia;” “fucking money laundering;” and “too many chinks.” The applicant, Andrew Cheung Architects, a Vancouver firm in business since at least 2000, was told to “Go Back to China.” Abundant evidence suggests clear links between Housing Nationalism and anti-Asian hate incidents. Furthermore, anti-Asian antipathy was broadly felt in conjunction with real estate, as noted by Canadian journalist Joanna Chiu: 
+
+>  If you chat with any Asian person in Vancouver, they’re likely to say they’ve noticed an uptick in racism, of people who voice their assumptions that they are recent migrants with bucketloads of cash and are driving up the real estate prices for “locals” and “real Canadians.”[@chiu.2019]
+
+
+Pandemic Nationalism, beginning in 2020, arguably built upon the popularity of pre-existing Housing Nationalism in BC [@mylonas2022pandemic; @jenne2022varieties]. The volume of attacks on Asian Canadians increased enormously, leading a Bloomberg News reporter to label Vancouver the “Anti-Asian Hate Crime Capital of North America” while drawing connections to Housing Nationalism as a contributor [@Obiko.Pearson.2021]. Where Obiko-Pearson drew upon hate crime data from the City of Vancouver [@VPD.2021], more comprehensive data from police-reporting for select Canadian metropolitan areas has since been released by Statistics Canada. In @fig-hate-crime} we extend the time-series back to 2017, demonstrating that Metro Vancouver had higher counts and per capita rates of Anti-East and SE Asian hate crime than other parts of Canada prior to the pandemic, and these rose to spike at a much higher level in Vancouver during the pandemic than elsewhere, suggesting how nationalism in one realm can flexibly boost nationalism in another.
+
+```{r fig-hate-crime, fig.cap="Anti-asian hate crime by target in Canadian metro areas", fig.height=5, fig.width=7}
+
+cmas <- c("Montreal"="462",  "Vancouver"="933", "Toronto"="535",   "Winnipeg"="602",  
+          #"Gatineau"="24505",  "Ottawa"="35505",
+          "Ottawa - Gatineau"="505")
+cma_uids <- as.character(cmas)
+
+pop_data <- get_cansim_sqlite("17-10-0135") %>%
+  filter(`Age group`=="All ages",
+         Sex=="Both sexes",
+         GeoUID %in% cma_uids) %>%
+  collect_and_normalize(disconnect = TRUE) %>%
+  select(GeoUID,Year=REF_DATE,Population=val_norm) 
+
+
+metro_hate_crime <- get_metro_hate_crime_data() %>%
+  mutate(CMA=gsub(" \\d+$","",CMA),
+         `Hate Crime Motivation`=gsub(" \\d+$","",`Hate Crime Motivation`)) %>%
+  mutate(CMA=recode(CMA,Ottawa="Ottawa - Gatineau",Gatineau="Ottawa - Gatineau")) %>%
+  group_by(`Hate Crime Motivation`, CMA, Year) %>%
+  summarise(Count=sum(Count),.groups="drop") %>%
+  mutate(GeoUID=cmas[CMA] %>% as.character) %>%
+  left_join(pop_data,by=c("GeoUID","Year")) %>%
+  mutate(rate=Count/Population)
+
+motivations <- c("East and Southeast Asian", "South Asian","Arab/West Asian")
+hate_colours <- setNames(sanzo::trios$c157,motivations)
+cma_colours <- setNames(RColorBrewer::brewer.pal(length(cmas),"Dark2"),names(cmas))
+
+metro_hate_crime %>%
+  filter(`Hate Crime Motivation` %in% motivations) %>%
+  mutate(`Hate Crime Motivation`=factor(`Hate Crime Motivation`,levels=motivations)) %>%
+  ggplot(aes(x=Year,y=rate*1000000,colour=CMA,group=CMA)) +
+  geom_point(shape=21) +
+  geom_line() +
+  facet_wrap(~`Hate Crime Motivation`) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_colour_manual(values=cma_colours) +
+  labs(title="Anti-Asian hate crime",y="Incidences per 1M population",
+       colour="Metro area",
+       x=NULL,caption="StatCan table 17-10-0135 and custom extrat from Table 35-10-0066")
+```
+
+
+## Harms to Immigrant Incorporation
+Multiculturalism as official policy was meant, in no small part, to welcome immigrants as Canadians rather than foreigners. Housing Nationalism challenges the incorporation of immigrants as Canadians. In some cases this remains rhetorical, and intrinsic to the flexibility with which foreignness can be applied. Even when not directly applied to immigrants, Housing Nationalism can target the source of their money [@Gold.2021]. Immigrants can be blamed for rising housing prices simply for transporting their savings, including wealth obtained from the sale of a prior residence (a source of wealth remaining untaxed for residents of Canada).^[Capital gains exemptions on sale of primary residence in Canada are estimated at a cost of $7.52 billion in national income revenue for the year of 2017 [@MacPhail.et.al.2021].]
+
+In other ways, Housing Nationalism can directly influence both immigration trajectories into Canada and the ability of Canadians to take up opportunities abroad. The literature suggests property purchase is a major form of integration and anchoring for many immigrants and also bound up the process of moving [@Hiebert.2017]. Home purchase may occur in conjunction with or even prior to immigration for "home-making migrants," common among immigrants to Vancouver [@lauster2017labor]. Similarly, many immigrants arrive first under temporary student or foreign worker status and only become permanent residents over time. Restrictions on home purchases under various statuses can jointly influence both property purchase and immigration trajectories. Immediately after Canada's foreign buyer ban came into effect in 2023, a health care worker arriving on a temporary work visa from France lamented to CBC her inability to buy a home as part of her resettlement trajectory in Quebec [@CBC.2023]. In still other cases, Housing Nationalism policies can continue to penalize immigrants long after they become citizens insofar as they make it more difficult to obtain family assistance in financing a home. As housing prices have risen, family assistance in home-buying has become increasingly important. For instance, just under 30% of first-time homebuyers reported family assistance in 2021, up from around 20% in 2015 [@Tal.2021]. Canadians with family in Canada have full access to family assistance, including obtaining help in the form of co-purchasers and co-signers on mortgage loans. Both rhetoric and specific policies villainize immigrants obtaining similar assistance from family members abroad. Canadians exploring opportunities abroad, or simply married to partners exploring those opportunities, can face similar penalties from policies and rhetoric, as with BC's Satellite Family provisions.
+
+
+## Threat to Canadian Transnational Ties
+The final threat concerns Canada's thorough embeddedness within transnational ties, both officially, as through treaty frameworks, and unofficially, as through the dual citizenships, mobility patterns, and the transnational ties of Canadian citizens. Treaties govern relations both within Canada (between First Nations and Canada) as well as between Canada and other states. Canada remains a member of the Commonwealth, a legacy organization for former colonies of the British Empire. In addition, treaty relations pertain to United Nations frameworks as well as other bodies, including trade treaty organizations (like NAFTA, renegotiated as CUSMA in force as of 2020), which often require specific obligations toward property and investment rights. Housing Nationalism can threaten these ties directly. For example, a U.S. Congressman has already demanded a U.S. exemption from Canada's proposed two-year foreign buyer ban [@Tumilty.2021], since signed into law in late 2022 [@foreign_buyer_ban.2022].
+
+Many Canadians further retain personal transnational ties involving housing. A medium estimate of 4 million Canadian citizens lived abroad in 2016, reflecting over 10% of the population living in Canada [@Berard-Chagnon_Canon_2022]. Many citizens abroad likely own property in Canada. Many resident Canadians also own properties abroad. For immigrants, these may include properties in their country of origin. For other Canadians, purchasing property abroad offers a means of escaping cold winters, especially for retirees and those engaged in seasonal work [@coates2002tracking; @kelly2023snowbirds]. The Canadian snowbird Association reports over 100,000 members and claims to represent many more regular travelers, indicating widespread adoption of an identity that is simultaneously Canadian and inherently transnational. The organization facilitates movement and property ownership across the border between the USA and Canada, and Canadians are reported as the largest group of foreign owners of United States properties [@Berkow.2021]. 
+
+
+# Benchmarking Transnational Property Ownership
+
+Consideration of realm enables us to better define the threats against which reactionary nationalism is positioned as solution, and also the potential harms arising from reactionary nationalism. We can use this improved definition to refine benchmarks informing better assessment of threats and harms. In this section we attempt to estimate both sides of transnational property ownership, including the number of properties within Canada owned by those residing abroad as well as the number of properties abroad owned by those residing within Canada. In the former case, we rely upon CHSP estimates (as discussed above). In the latter case, we turn to Canada's Survey of Financial Security (SFS) data from 2019. We also compare these estimates of transnational property ownership to alternative conceptualizations of foreignness embedded within estimates of Foreign Buying and Foreign Ownership obtained from administrative data relating to the Speculation and Vacancy Tax (SVT) in BC. As we note, our estimations of transnational property ownership speak directly to the size of threat viewed as provoking Housing Nationalism, as well as the harms posed by Housing Nationalism to immigrant incorporation and Canada's transnational ties.
+
+```{r fig-chsp-non-res-participation, fig.cap="CHSP non-resident participation", fig.height=5, fig.width=7}
+geo_uids2 <- c(geo_uids,prov_ids)
+
+non_resident_owner_data2 <- get_cansim_sqlite("46-10-0027") %>%
+  filter(`Property type`=="Total, all property types",
+         `Period of construction`=="Total, all periods of construction",
+         `Residency participation` %in% residency_types,
+         #REF_DATE=="2019",
+         GeoUID %in% geo_uids2,
+         Estimates=="Number") %>%
+  #filter(nchar(GeoUID)==7 & grepl("^59",GeoUID) | nchar(GeoUID)==3 & grepl("^9",GeoUID)) %>%
+  #pivot_wider(names_from = `Residency participation`, values_from=VALUE) %>%
+  collect_and_normalize(disconnect = TRUE) %>%
+  select(GeoUID,GEO,Year=REF_DATE,`Residency participation`,Value=val_norm) %>%
+  mutate(SVT=GeoUID %in% geo_uids) %>%
+  mutate(GeoUID=ifelse(SVT,"BC SVT area",GeoUID)) %>%
+  mutate(GEO=ifelse(SVT,"BC SVT area",GEO)) %>%
+  group_by(GeoUID,GEO,Year,`Residency participation`) %>%
+  summarise(Value=sum(Value),.groups="drop") %>%
+  bind_rows((.) %>% 
+              filter(GeoUID %in% c("59","BC SVT area")) %>%
+              select(-GEO) %>%
+              pivot_wider(names_from="GeoUID",values_from=Value) %>%
+              mutate(Value=`59`-`BC SVT area`,
+                     GEO="BC non-SVT area",
+                     GeoUID="BC non-SVT area") %>%
+              select(GeoUID,GEO,Year,`Residency participation`,Value))
+
+
+non_resident_owner_data2 %>% 
+              group_by(GeoUID,Year) %>%
+              mutate(CHSP_Total=sum(Value)) %>%
+              filter(`Residency participation` %in% 
+                       c("Non-resident owners only","Mix of resident and non-resident owners")) %>%
+  filter(!is.na(Value)) |>
+  ggplot(aes(x=GEO,y=Value/CHSP_Total,fill=`Residency participation`)) +
+  geom_bar(stat="identity") +
+  scale_y_continuous(labels=scales::percent) +
+  coord_flip() +
+  scale_fill_manual(values=sanzo::duos$c071 %>% rev) +
+  theme_bw()+
+  theme(legend.position = "bottom") +
+  facet_wrap("Year") +
+  labs(title="CHSP residential non-resident participation",
+       x=NULL,y=NULL,fill=NULL,
+       caption="StatCan Table 46-10-0027")
+```
+
+Overall, CHSP data shown in @fig-chsp-non-res-participation suggests that ownership of properties in Canada involving non-residents accounts for between just over 3% to just under 6% of residential properties, depending upon province, with Nova Scotia and New Brunswick recording the highest non-resident ownership in 2020. For BC, we see greater non-resident ownership within the area covered by the Speculation and Vacancy Tax, but still not rising to the rates of Nova Scotia and New Brunswick. 
+
+We can divide up ownership arrangements involving non-residents into entirely non-resident and mixed resident and non-resident categories. The latter, mixed, category accounts for roughly one-third to half of non-resident ownership arrangements. This category is worth considering more in-depth as as a potential indicator of situations where immigrants may be attempting to draw upon transnational family assistance in purchasing housing. It could also signal complex immigrant trajectories where some family members still work abroad for a period of time while others live and work in Canada, acting temporarily as separate households. This provides a potential baseline for assessing the degree to which Housing Nationalism may be negatively affecting immigrants in terms of their access to family support to buy a home relative to non-immigrants.
+
+CHSP data will also capture emigrants (temporary or permanent), including Canadian citizens or permanent residents who own residential property in Canada and go to live for work or other reasons abroad, showing up either in the entirely non-resident category if all property owners leave the country, or as mixed ownership if at least one of the people on title remain in Canada.
+
+Pulling out the portions of BC affected by the Speculation and Vacancy Tax (SVT) enables us to further compare estimates of non-resident ownership obtained from CHSP with estimates of foreign ownership obtained from the SVT in @fig-svt-chsp-comparison. Approximately half of owners estimated as foreign (non-resident) within CHSP records are not listed as foreign (non-citizen or PR) within SVT administrative records. Where CHSP estimations are residual and subject to administrative matching error, SVT estimates require declarations backed by Canadian Social Insurance Number (SIN). This suggests that approximately half of those identified by CHSP as non-resident property owners are likely Canadian citizens abroad or misidentified as non-residents, and thereby not subject to taxation as foreign owners. That CHSP estimates, using their techniques for estimating non-residents, appear to suggest approximately twice as many “foreign” owners as appear within the SVT data for BC, and that this ratio varies considerably across individual municipalities, is an important caveat to studies [e.g. @gordon2020solving] relying upon CHSP estimates to analyze “foreign” participation in Canadian real estate markets. 
+
+```{r}
+non_resident_owner_data <- get_cansim_sqlite("46-10-0027") %>%
+  filter(`Property type`=="Total, all property types",
+         `Period of construction`=="Total, all periods of construction",
+         `Residency participation` %in% residency_types,
+         #REF_DATE=="2019",
+         Estimates=="Number",
+         GeoUID %in% geo_uids) %>%
+  #filter(nchar(GeoUID)==7 & grepl("^59",GeoUID) | nchar(GeoUID)==3 & grepl("^9",GeoUID)) %>%
+  #pivot_wider(names_from = `Residency participation`, values_from=VALUE) %>%
+  collect_and_normalize(disconnect = TRUE) %>%
+  select(GeoUID,GEO,Year=REF_DATE,`Residency participation`,Value=val_norm) 
+
+
+
+muni_levels <- svt_data$Municipality %>% levels
+  
+
+source_colours <- setNames(sanzo::trios$c157 %>% rev,c("CHSP","SVT","Taxed foreign owners"))
+```
+
+
+```{r fig-svt-chsp-comparison, fig.height=6, fig.cap="Comparison of BC SVT and CHSP", fig.height=5, fig.width=7}
+svt_data %>% 
+  filter(Status=="Total") %>%
+  select(Municipality,GeoUID,Year,`Foreign Owner`,Mixed,SVT_Total=Total) %>%
+  left_join(svt_data %>% 
+              filter(Status=="Non Exempt") %>%
+              select(GeoUID,Year,`Foreign Owner Non Exempt`=`Foreign Owner`,
+                     `Mixed Non Exempt`=Mixed,`SVT_Total Non Exempt`=Total),
+            by=c("GeoUID","Year")) %>%
+  left_join(non_resident_owner_data %>% 
+              group_by(GeoUID,Year) %>%
+              mutate(CHSP_Total=sum(Value)) %>%
+              pivot_wider(names_from = `Residency participation`, values_from=Value) %>%
+              select(GeoUID,Year,CHSP_Total,`Non-resident owners only`,
+                     `Mix of resident and non-resident owners`),
+            by=c("GeoUID","Year")) %>%
+  mutate(`Non-resident non-foreign`=`Non-resident owners only`-`Foreign Owner`) %>%
+  mutate(`Non-resident mixed non SVT-mixed`=`Mix of resident and non-resident owners`-`Mixed`) %>%
+  mutate(CHSP=`Non-resident owners only`/CHSP_Total,
+         SVT=`Foreign Owner`/SVT_Total,
+         `Taxed foreign owners`=`Foreign Owner Non Exempt`/SVT_Total) %>%
+  #pivot_longer(c("Non-resident non-foreign","Non-resident mixed non SVT-mixed")) %>%
+  filter(Municipality %in% rev(muni_levels)[1:20]) %>%
+  pivot_longer(c("CHSP","SVT","Taxed foreign owners")) %>%
+  ggplot(aes(x=Municipality,y=value,fill=name)) +
+  geom_bar(stat="identity",position = "dodge") +
+  scale_y_continuous(labels=scales::percent) +
+  scale_fill_manual(values=source_colours,labels=c(CHSP="CHSP all owners non-resident",
+                                                   SVT="SVT Foreign Owners",
+                                                   "Taxed foreign owners"="SVT Taxed Foreign Owners")) +
+  coord_flip() +
+  theme_bw()+
+  facet_wrap("Year") +
+  theme(legend.position = "bottom",
+    legend.justification = c(0.9,0)) +
+  labs(title="Comparison of CHSP vs SVT data",
+       subtitle = "Municipalities where the SVT applies (top 20 by dwelling stock)",
+       fill=NULL,
+       x=NULL, y= "Share of residentital properties",
+       caption="SVT report, StatCan Table 46-10-0027")
+```
+
+Of further note, those property owners identified by the SVT as foreign (here including satellite families) are very seldom subject to taxation, generally representing far below 1% of total property owners in municipalities in BC where the SVT has been applied. The largest exemption from the tax for non-residents is for those renting out their properties to long-term tenants, required to be arm's length (or have sufficient income to pay market rents) for foreign property owners.
+
+Finally we turn to a broader notion of Canadian transnational ties reflected in the properties Canadian residents own abroad. These property ties can be directly affected by the rise of Housing Nationalism insofar as restrictions placed upon ownership by those abroad may be reciprocated in other countries. Hence Canadian Housing Nationalism could lead to broader restrictions on transnational property ownership which rebound upon Canadian owners of properties elsewhere. The CHSP data provides little insight here, so we attempt to provide a baseline for examining this threat by turning to the SFS data, surveying Canadians on their wealth, including properties owned abroad. SFS data also counts commercial properties held abroad by individual owners, however we believe that most individually held property is residential (commercial property holdings tend to be structured through corporations and would likely have little if any effect on our estimates).
+
+In terms of sheer numbers, in those provinces where we are able to compare our estimates, we see in @fig-chsp-reciprocacy that Canadian residents own many more properties abroad than those living abroad own within Canada. The proportion of resident households owning properties abroad varies from province to province. Colder provinces with large seasonal economies, like Manitoba, as well as wealthier provinces and those with larger proportions of immigrants, including both BC and ON, tend to own more properties abroad. By contrast, the much smaller Atlantic provinces of NS, NB, and PEI see more provincial properties owned by those living abroad.
+
+```{r}
+sfs_bsweights <- get_pumf("SFS",pumf_version = "2019",layout_mask="bsweights",file_mask="BSWEIGHTS")
+sfs_2019 <-get_pumf("SFS",pumf_version = "2019",layout_mask="EFAM_PUMF") %>%
+  label_pumf_data() %>%
+  rename(PEFAMID=`Family unit: economic families and persons not in economic families.`,
+         PWEIGHT=`Survey weights - PUMF`) %>%
+  left_join(sfs_bsweights %>% select(-PWEIGHT),by="PEFAMID")
+
+sfs_foreign <- sfs_2019 %>%
+  #filter(`Principal residence ownership status.` %in% c("Own without mortgage", "Own with mortgage")) %>%
+  group_by(`Province of residence for the family unit.`,
+           `Number of 'other real estate properties' (outside Canada)`) %>%
+  summarise(across(matches("PWEIGHT|^BSW_"),sum),.groups="drop") %>%
+  #filter(`Number of 'other real estate properties' owned (inside Canada)` != "Valid skip") %>%
+  pivot_longer(matches("PWEIGHT|^BSW_"),names_to="Weight") %>%
+  filter(`Number of 'other real estate properties' (outside Canada)`!="Valid skip") %>%
+  group_by(`Province of residence for the family unit.`,Weight) %>%
+  #mutate(share=value/sum(value)) %>%
+  mutate(value=ifelse(`Number of 'other real estate properties' (outside Canada)`==1,value,2*value)) %>%
+  summarize(value=sum(value),.groups="keep")
+
+
+chsp_data <- get_cansim_sqlite("46-10-0027") %>%
+  filter(GeoUID %in% prov_ids,
+         `Property type`=="Total, all property types",
+         `Period of construction`=="Total, all periods of construction",
+         Estimates=="Number",
+         `Residency participation` %in% c("Mix of resident and non-resident owners","Non-resident owners only")) %>%
+  collect_and_normalize(disconnect=TRUE)
+```
+
+
+```{r fig-chsp-reciprocacy, fig.cap="Provincial comparison of properties abroad owned by residents of Canada vs properties in Canada owned by residents abroad. Properties are normalized as ratio per household (OECD definition) in each province, with absolute number of properties as labels for reference.", fig.height=5, fig.width=7}
+
+properties <- get_cansim_sqlite("46-10-0027") %>%
+  filter(`Property type`=="Total, all property types",
+         `Period of construction`=="Total, all periods of construction",
+         `Residency participation` =="Total, all residency participation types",
+         #REF_DATE=="2019",
+         Estimates=="Number",
+         GeoUID %in% prov_ids) %>%
+  #filter(nchar(GeoUID)==7 & grepl("^59",GeoUID) | nchar(GeoUID)==3 & grepl("^9",GeoUID)) %>%
+  #pivot_wider(names_from = `Residency participation`, values_from=VALUE) %>%
+  collect_and_normalize(disconnect = TRUE) %>%
+  filter(GeoUID %in% c("12","13","46") & REF_DATE== "2020" | 
+           GeoUID %in% c("11") & REF_DATE=="2021" |
+           !(GeoUID %in% c("12","13","11","46")) & REF_DATE == "2019") %>%
+  select(GEO,Properties=val_norm)
+
+households <- get_cansim_sqlite("36-10-0101") %>%
+  filter(Quintile=="All quintiles",
+         REF_DATE=="2019") %>%
+  collect_and_normalize(disconnect = TRUE) %>%
+  filter(grepl(", households",`Socio-demographic characteristics`)) %>%
+  mutate(Province=gsub(", households","",`Socio-demographic characteristics`)) %>%
+  select(GEO=Province,Households=val_norm)
+
+pd<-chsp_data %>%
+  filter(GeoUID %in% c("12","13","46","11") & REF_DATE== "2020" | 
+           GeoUID %in% c("11") & REF_DATE=="2021" |
+           !(GeoUID %in% c("12","13","46","11")) & REF_DATE == "2019") %>%
+  group_by(GEO) %>%
+  summarize(value=sum(val_norm),.groups="drop") %>%
+  mutate(type="CHSP") %>%
+  bind_rows(sfs_foreign %>% 
+              ungroup() %>%
+              select(GEO=`Province of residence for the family unit.`,value) %>% 
+              filter(GEO %in% unique(chsp_data$GEO)) %>%
+              mutate(type="SFS")) %>%
+  left_join(properties,by="GEO") %>%
+  left_join(households,by="GEO") %>%
+  mutate(rate=value/Households)
+
+medians <- pd %>%
+  group_by(GEO,type) %>%
+  summarize(value=median(value),
+            lower=quantile(rate,0.25),
+            rate=median(rate),
+            .groups="drop") |>
+    mutate(text_pos=ifelse(type == "CHSP",-1,2)) 
+
+pd |>
+  mutate(GEO=fct_reorder(GEO,-rate)) |>
+ggplot(aes(x=GEO,y=rate,colour=type)) +
+  geom_boxplot(fill="lightgrey",size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  scale_colour_manual(values=sanzo::duos$c085, 
+                      labels=c("CHSP"="Non-resident owned properties in province",
+                               "SFS"="Abroad properties owned by residents of province")) +
+  labs(title="Non-resident owned properties in Canada\nvs\nCanadian owned properties abroad",
+       x=NULL,y="Properties per total number of households in province",colour=NULL,
+       caption="StatCan Table 46-10-0027, SFS 2019 PUMF") +
+  theme_bw() +
+  geom_text(data=medians,aes(label=scales::comma(value,accuracy=1000),
+                             hjust=ifelse(type=="SFS",0,1),
+                             vjust=text_pos,
+                             y=lower,
+                             group=type),
+            position = "dodge",
+            colour="black",size=3.2) +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r SFS_vs_CHSP, eval=FALSE, fig.cap="Provincial comparison of properties abroad owned by residents of Canada vs properties in Canada owned by residents abroad.", include=FALSE, fig.height=5, fig.width=7}
+chsp_data %>%
+  filter(GeoUID %in% c("12","13") & REF_DATE== "2020" | 
+           !(GeoUID %in% c("12","13")) & REF_DATE == "2019") %>%
+  group_by(GEO) %>%
+  summarize(value=sum(val_norm),.groups="drop") %>%
+  mutate(type="CHSP") %>%
+  bind_rows(sfs_foreign %>% 
+              ungroup() %>%
+              select(GEO=`Province of residence for the family unit.`,value) %>% 
+              filter(GEO %in% unique(chsp_data$GEO)) %>%
+              mutate(type="SFS")) %>%
+  ggplot(aes(x=GEO,y=value,colour=type)) +
+  geom_boxplot(fill="lightgrey",size=1) +
+  scale_y_continuous(labels=scales::comma) +
+  scale_colour_manual(values=sanzo::duos$c085, 
+                      labels=c("CHSP"="Non-resident owned properties in province",
+                               "SFS"="Abroad properties owned by residents of province")) +
+  labs(title="Non-resident owned properties in Canada\nvs\nCanadian owned properties abroad",
+       x=NULL,y="Number of properties",colour=NULL,
+       caption="StatCan Table 46-10-0027, SFS 2019 PUMF") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5))
+```
+
+
+
+Transnational property ownership patterns directly undercut the threats claimed by the framing of Housing Nationalism. Rather than Canadians facing a unique threat from transnational property ownership, it appears in most provinces, including BC, that Canadians are disproportionately likely to be owners of properties abroad. Correspondingly, transnational ownership patterns also speak to an important challenge posed by Housing Nationalism to Canadian transnational ties. The challenge extends from transnationality as an aspect of distinctly Canadian identities (e.g. as with Snowbirds) to threats to Canadian bilateral and multilateral relations and treaty obligations. These threats may result in retaliatory actions taken by other countries imposing new taxes and restrictions upon Canadians owning properties abroad. Ironically, were such restrictions against property ownership abroad to strengthen, Canadian investors in real estate abroad might return their focus to Canada, pouring more capital into local real estate markets than could be extracted from restrictions upon non-resident investment. In effect, for a wealthy country like Canada, the purported aims of Housing Nationalism, rooted in middle-class anxieties about affordability, could easily become self-defeating if Canada's wealth abroad came home to roost.
+
+
+## Conclusion
+
+We suggest reactionary nationalism is usefully studied within the context of varying threat realms. We find that housing acts as such a realm within Canada. Threats from the realm of housing can have distinct triggers from other realms, enabling Housing Nationalism to take root when reactionary nationalism elsewhere lacks a supporting sense of crisis. In the context of Canada, the threat has been most acutely felt by largely middle class prospective home buyers, but the complexity of housing as a realm is notable in that a variety of possible classes can feel threatened. Similarly, housing offers the possibility for foreignness to be defined in new ways, applied to a wide and shifting variety of possible actors as well as their money. If reactionary nationalism is a hammer in search of nails, housing has a lot of unique nails to offer.
+
+Despite the distinctiveness of housing as a realm, our study suggests that the propagators of Housing Nationalism in Canada borrow frames and threat magnification techniques from reactionary nationalism in other realms. Indeed, threats can be magnified by the process of borrowing itself, as anti-Chinese sentiment associated with Housing Nationalism in BC may have boosted anti-Chinese sentiment associated with the Pandemic. As reactionary nationalism moves from media, movement frames, and politics into new policy, the specificity of how policies touch upon realms moves to the fore. The flexibility of foreignness often has to be more tightly defined to assign penalties and fit them to existing policy frameworks, though commissioning reports and inquiries can operate to prolong flexibility. In BC, the realm of housing offered two different ways to tax foreignness, at point of sale as per the Foreign Buyer Tax (FBT), and as an addition to property tax, as per the Speculation and Vacancy Tax (SVT), each of which was pursued by differing political parties in power. In the process of applying penalties to foreigners Housing Nationalism produced a whole new class in Satellite Families in BC, defined in such a way to place them outside of the nation despite residence and citizenship in Canada. At the federal level, the Canadian Housing Statistics Program (CHSP) offered a different way to define foreignness (in terms of administrative residence within Canada) distinct from the taxed categories in BC. The federal government would nevertheless ultimately build upon BC's policies in creating its own penalties applied to foreignness in housing.
+
+Housing Nationalism has direct harms for those labelled foreign. Even where direct policy impacts are narrow, the flexibility of foreignness as a frame increases the potential harm. Overall, the harms of Housing Nationalism, in framing and policy, also potentially redound upon Canada's model of liberal multinationalism. We discuss potential harms associated with Housing Nationalism's agitation of Canada's existing multinational governance; disruption of immigrant incorporation; and challenge to distinctly Canadian forms of transnationalism. By confining reactionary nationalism to the realm of housing, we are also able to better benchmark the threats to which Housing Nationalism responds and the potential harms it might produce. We note that property ownership abroad by Canadian residents generally appears to exceed ownership of Canadian properties by those abroad, contextualizing both the threat to which Housing Nationalism responds and some of the potential harms that flow from its solutions.
+
+## Limitations
+
+We provide here a sketch of Housing Nationalism as it arose in response to rising housing prices in the Vancouver area, spreading from there to provincial and national arenas. In so doing we follow the trajectory and history of framing and policy, but we potentially miss important geographic variation in how the frame came to be applied. In particular, prices are higher and Chinese Canadians are more visible in Vancouver than elsewhere in Canada [@Lauster.2016]. Given space limitations, we are unable to fully include a study of framing from other major cities. Similarly, we also only sketch the actors involved, rather than fully detailing their history and interrelationships.
+
+We found limited data to estimate baselines for transnational property ownership, especially prior to the rise of Housing Nationalism. This is unsurprising, given the role Housing Nationalism played in driving administrative data collection (e.g. through the creation of CHSP, but also tax records). CMHC surveys of condominiums estimating foreign ownership are available prior to the rise of Housing Nationalism, demonstrating no appreciable rise over time, but these also underestimate foreign ownership relative to CHSP data. We were also limited in other trend data available, including housing price and hate crime data.
+
+## Future Study
+
+Future work should address the limitations noted above. In particular, further time series data may become available. Additional directions for future study include the extension of the logic of Housing Nationalism into the post-pandemic rental housing crisis. Rents and access to rental housing activated a different (though increasingly overlapping) threatened class than the earlier crisis in prices. It also activated a new potential set of foreign actors to blame: international students [@Passifiume.2023], as well as immigrants [@Baxter.2023]. Further study could explore how the framing of Housing Nationalism adapted to this new threatened class and operationalization of foreign, attempting to move new solutions (cutting back on international student visas, and reducing immigration) onto the policy agenda. Similarly, comparative work could be undertaken to explore Housing Nationalism elsewhere. In the UK, for instance, housing crisis within the social housing sector has been blamed upon rising immigration, potentially overlapping more strongly with Social Welfare Nationalism [@Landberg_2023].
+
+Future research could also look more closely at whether Property Nationalism should be considered as distinct from Housing Nationalism. We focus on Housing Nationalism insofar as it connects threats within people's own expectations about their future housing trajectories to understandings of the nation. In effect we see housing as more salient to people's frames of reference than more abstract ideas about property. But we recognize strong overlaps between housing and property and that property ownership constitutes a distinct set of logics and attachments to the state, with particular resonance within legal settings. There may be different frames for Property Nationalism worth investigating, extending beyond housing (e.g. to commercial and industrial properties).
+
+Future research should also expand the study of reactionary nationalism as it appears within diverse realms. This would enable further bridging of literatures on nationalism and the construction of social problems. A focus on actors within this framework could help elucidate how "moral entrepreneurs" emerge in relationship to realms [@Klocke_2010]. In particular, do they reflect ideologues who broadly promote nationalism as a solution to multiple problems; realm-specific activists who latch on to particular frames; or, as we suspect, some combination of the two? How do coalitions form, and what role does it play in refining, promoting or ultimately resisting reactionary nationalism within realms?
+
+Overall, we return to our understanding of reactionary nationalism as a hammer in search of nails. We advocate a realms approach to studying reactionary nationalism insofar as where the nails appear can be important to understanding what the hammer is doing. In the context of a liberal multinational state like Canada, we argue that it might be screws rather than nails holding the country together. Correspondingly, a hammer could be the wrong tool for the state to endorse.
+
+
+# References
+
+<div id="refs"></div>
