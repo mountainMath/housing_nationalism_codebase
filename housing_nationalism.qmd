@@ -1,7 +1,7 @@
 ---
 title: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
 author:
-  - name: Nathan Lauster
+  - name: Nathanael Lauster
     affiliation: UBC Department of Sociology
   - name: Jens von Bergmann
     affiliation: MountainMath Software and Analytics
@@ -29,7 +29,7 @@ format:
     fig-pos: "H"
     title-meta: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
     pagetitle: "The Rise of Housing Nationalism in Canada and Transnational Property Ownership Patterns"
-    author-meta: "Nathan Lauster, Jens von Bergmann"
+    author-meta: "Nathanael Lauster, Jens von Bergmann"
     output-file: "housing_nationalism"
     output-ext: "pdf"
     #toc-depth: 2
