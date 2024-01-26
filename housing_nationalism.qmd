@@ -470,7 +470,7 @@ knitr::include_graphics("images/dunbar_graffiti.jpeg")
 ```
 
 
-Scrawled comments surrounding the design for the low-rise apartment building included “Enough is Enough;” “Not for the people of British Columbia;” “fucking money laundering;” and “too many chinks.” The applicant, Andrew Cheung Architects, a Vancouver firm in business since at least 2000, was told to “Go Back to China.” Abundant evidence suggests clear links between Housing Nationalism and anti-Asian hate incidents. Furthermore, anti-Asian antipathy was broadly felt in conjunction with real estate, as noted by Canadian journalist Joanna Chiu: 
+Scrawled comments surrounding the design for the low-rise apartment building included “Enough is Enough;” “Not for the people of British Columbia;” “fucking money laundering;” and “too many chinks.” The applicant, Andrew Cheung Architects, a Vancouver firm in business since at least 2000, was told to “Go Back to China.” Abundant evidence suggests clear links between Housing Nationalism and anti-Asian hate incidents. Furthermore, anti-Asian antipathy was broadly felt in conjunction with real estate, as noted in an essay by Canadian journalist Joanna Chiu: 
 
 >  If you chat with any Asian person in Vancouver, they’re likely to say they’ve noticed an uptick in racism, of people who voice their assumptions that they are recent migrants with bucketloads of cash and are driving up the real estate prices for “locals” and “real Canadians.”[@chiu.2019]
 
